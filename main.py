@@ -1,9 +1,9 @@
 from fastapi import FastAPI, UploadFile, Form, Response, Depends
-
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from fastapi.staticfiles import StaticFiles
-
+from fastapi_login import LoginManager
+from fastapi_login.exceptions import InvalidCredentialsException
 from typing import Annotated
 import sqlite3
 
@@ -24,7 +24,54 @@ cur = con.cursor()
 
 app = FastAPI()
 
-SERCRET = "super-coding"
+SECRET = "super-coding"
+
+manager = LoginManager(SECRET, '/login')
+
+@manager.user_loader()
+def query_user(data):
+  WHERE_STATEMENT = f'id="{data}"'
+  if type(data) == dict:
+      WHERE_STATEMENT = f'id="{data["id"]}"'
+  # 컬럼명도 같이 가져옴
+  con.row_factory = sqlite3.Row
+  cur = con.cursor()
+  user = cur.execute(f"""
+                     SELECT * from users WHERE {WHERE_STATEMENT}
+                     """).fetchone()
+  return user
+
+@app.post('/login')
+def login(id:Annotated[str, Form()],
+           password:Annotated[str, Form()]):
+  user = query_user(id)
+  if not user:
+    raise InvalidCredentialsException   #-> 401 자동생성
+  elif password != user['password']:
+    raise InvalidCredentialsException  
+  print(user)
+  
+  access_token = manager.create_access_token(data={
+    'sub' : {
+      'id' : user['id'],
+      'name' : user['name'],
+      'email' : user['email']
+    }
+    
+  })
+  return {'access_token' : access_token } # return 'hi' 여도 상태코드는 200
+
+@app.post('/signup')
+def signup(id:Annotated[str, Form()],
+           password:Annotated[str, Form()],
+           name:Annotated[str, Form()],
+           email:Annotated[str, Form()]):
+  cur = con.execute(f"""
+                    INSERT INTO users(id, name, email, password)
+                    VALUES ('{id}', '{name}', '{email}', '{password}')
+                    """)
+  con.commit()
+  return '200'
 
 
 
@@ -36,6 +83,7 @@ async def create_item(image: UploadFile,
                       description: Annotated[str, Form()],
                       place: Annotated[str, Form()],
                       insertAt: Annotated[int, Form()]
+                      # user=Depends(manager)
                       ):
 
     image_bytes = await image.read()
@@ -50,7 +98,7 @@ async def create_item(image: UploadFile,
 # user=Depends(manager)
 
 @app.get('/items')
-async def get_items():
+async def get_items(user=Depends(manager)): #user가 인증된 상태에서만 응답을 보낼 수 있도록함. 
     # 컬럼명도 같이 가져옴
     # print(user)
     con.row_factory = sqlite3.Row
@@ -71,16 +119,6 @@ async def get_image(item_id):
 
     return Response(content=bytes.fromhex(image_bytes), media_type='image/*')
   
-@app.post('/signup')
-def signup(id:Annotated[str, Form()],
-           password:Annotated[str, Form()],
-           name:Annotated[str, Form()],
-           email:Annotated[str, Form()]):
-  cur = con.execute(f"""
-                    INSERT INTO users(id, name, email, password)
-                    VALUES ('{id}', '{name}', '{email}', '{password}')
-                    """)
-  con.commit()
-  return '200'
+
 
 app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
