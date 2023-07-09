@@ -1,22 +1,61 @@
 <script>
   import Login from "./pages/Login.svelte";
+  import Loading from "./pages/Loading.svelte";
   import Main from "./pages/Main.svelte";
   import NotFound from "./pages/NotFound.svelte";
   import Signup from "./pages/Signup.svelte";
   import Write from "./pages/Write.svelte";
   import Router from "svelte-spa-router";
   import "./css/style.css";
+  import { user$ } from "./store";
+  import {
+    GoogleAuthProvider,
+    getAuth,
+    signInWithCredential,
+  } from "firebase/auth";
+  import { onMount } from "svelte";
+  import MyPage from "./pages/MyPage.svelte";
+  // import { GoogleAuthProvider } from "firebase/auth";
+
+  // const provider = new GoogleAuthProvider();
+  // provider.addScope("https://www.googleapis.com/auth/contacts.readonly");
+
+  // let login = false;
+
+  let isLoading = true;
+
+  const auth = getAuth();
+
+  const checkLogin = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return (isLoading = false);
+
+    const credential = GoogleAuthProvider.credential(null, token);
+    const result = await signInWithCredential(auth, credential);
+    const user = result.user;
+    user$.set(user);
+    isLoading = false;
+  };
 
   const routes = {
     "/": Main,
-    "/login": Login,
+    // "/login": Login,
     "/signup": Signup,
     "/write": Write,
+    "/my": MyPage,
     "*": NotFound,
   };
+
+  onMount(() => checkLogin());
 </script>
 
-<Router {routes} />
+{#if isLoading}
+  <Loading />
+{:else if !$user$}
+  <Login />
+{:else}
+  <Router {routes} />
+{/if}
 
 <main>
   <div>안녕하세요</div>
